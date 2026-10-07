@@ -1,0 +1,7 @@
+# 재생성 가능한 산출물 — 저장소에 넣지 않는다
+logs/
+episodes/
+__pycache__/
+*.pyc
+*.hdf5
+*.mp4

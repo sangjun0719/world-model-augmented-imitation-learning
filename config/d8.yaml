@@ -1,0 +1,209 @@
+# kimm_door v2 — 문 D8 열기 설정
+#
+# v1 에서 코드 여기저기 흩어져 있던 상수를 한곳에 모았다.
+# 출처가 있는 값은 전부 주석에 근거를 적는다. 근거 없는 값은 넣지 않는다.
+version: d8_v2
+
+scene:
+  # 실행용 루트 레이어. override 가 먼저, 원본이 나중 (kimm_record/overrides/sim_overrides.md 규칙).
+  root: scenes/kimm_door_d8_run.usda
+  robot_prim: /ffw_sg2_follower
+  door_prim: /Environment/LAB_3_scene/LAB_3_scene/OBJ_cab_0007_D8
+  # 스테이지 메타데이터는 subLayer 에서 합성되지 않는다. 루트에 반드시 다시 선언할 것.
+  up_axis: Z
+  meters_per_unit: 1
+
+robot:
+  # 2026-10-03 실측 (Isaac Sim 6.1, SingleArticulation.dof_names)
+  base_xy: [-2.90, -2.80]        # kimm_door_env_cfg.robot_pos, 성공 에피소드 root_pose 와 일치
+  base_yaw: 0.0
+  arm_joints: [arm_r_joint1, arm_r_joint2, arm_r_joint3, arm_r_joint4,
+               arm_r_joint5, arm_r_joint6, arm_r_joint7]
+  arm_dof_index: [6, 11, 14, 16, 18, 20, 22]
+  gripper_joint: gripper_r_joint1
+  gripper_dof_index: 25
+  # 왼쪽 손가락 관절. USD 에는 드라이브가 없어 mimic 스프링만으로 따라간다 (tools/run.py 참고).
+  gripper_joint_left: gripper_r_joint3
+  lift_joint: lift_joint
+  lift_dof_index: 1
+  # 바퀴 6관절. 구동 관절 drive maxForce 가 1 N·m 뿐이라 팔을 뻗으면 베이스가 뒤로 굴러간다.
+  # 2026-10-07 실측: 손잡이 접근 중 wheel_drive 3개가 0.43 rad 돌아 손이 약 40 mm 뒤에 섰다.
+  # tools/run.py 의 lock_wheels 가 물리 시작 전에 limit 0/0 으로 잠근다.
+  wheel_joints: [left_wheel_drive, right_wheel_drive, rear_wheel_drive,
+                 left_wheel_steer, right_wheel_steer, rear_wheel_steer]
+  dof_count: 31
+  # 성공 에피소드 door_lift-0.25_success2 demo_0 의 t=0 오른팔 자세.
+  # 전관절 0 에서 시작하면 안 된다 (door_pose_eval.ik_post 가 q[3] > -0.2 에 벌점 10).
+  home_arm: [0.75, 0.0, 0.0, -2.30, 0.0, 0.0, 0.0]
+  head_tilt: 0.69                # kimm_door_env_cfg.head_tilt
+
+# 상체 높이별 프리셋. push_z/push_k 는 lift 에 딸린 값이라 따로 바꾸면 팔이 문을 뚫는다.
+lift_presets:
+  -0.25: {push_z: 0.78, push_k: 0.3}   # kimm_door_run.py. 탑뷰에 문이 다 보이는 높이
+  -0.45: {push_z: 0.62, push_k: 0.5}   # RightArmDoorPlanner 기본값. 원호 오차 최대 2.9mm
+
+door:
+  # kimm_door_env_cfg.py + 2026-10-03 스테이지 실측
+  hinge_xy: [-2.212, -3.463]
+  handle_bar_world: [-2.2555, -3.1375, 0.82]   # col_bar 실측
+  handle_z: 0.82
+  open_limit_deg: [0.0, 90.0]
+  success_deg: 80.0              # kimm_door_env_cfg.door_open_deg
+  # 문 구조 (x 좌표, 2026-10-03 실측). 손가락이 들어갈 틈 = 패널과 막대 사이 23mm.
+  panel_x: [-2.227, -2.212]
+  leg_x: -2.2395
+  bar_x: [-2.261, -2.250]
+  # 2단계(밀기)는 문이 이미 열려 있어야 성립한다. 닫힌 상태(0도)에서는 IK 해가 없다
+  # (실측: phi 15도로 깎이면 pre_ik 오차 109.6mm). v1 에서 확인됨.
+  push_requires_open_deg: 15.0
+  # 밀기 정지 각도. 여기 닿으면 남은 궤적을 버리고 그 자리에서 멈춘다.
+  # RightArmDoorPlanner 는 phi_end 90 도까지 원호를 만드는데 힌지 limit 도 90 도다.
+  # 끝까지 따라가면 문이 멈춘 뒤에도 계속 밀어 그 반력이 베이스를 밀어낸다
+  # (2026-10-07 녹화 영상에서 눈으로 확인, 베이스 7.572 mm).
+  # 88 도는 성공 기준 80 도를 넘기면서 limit 90 도에 닿기 전이다.
+  push_stop_deg: 88.0
+
+gripper:
+  # 왼쪽 손가락(joint3)에 오른쪽과 같은 드라이브를 복사하고 같은 목표를 보낸다.
+  # 실제 RH-P12-RN 은 한 모터가 양 손가락을 구동한다. 끄면 2026-10-07 이전 동작(한쪽 파지)으로 돌아간다.
+  drive_left: true
+  close_handle: 1.1              # 손잡이 잡기. 성공 에피소드 joint_pos_target 최대값과 일치
+  close_push: 0.9                # 밀기 단계
+  # 기계적 한계. 완전히 닫으면 joint2/4 가 1.0 에 닿아 joint1 이 여기서 멈춘다.
+  mechanical_limit: 1.094
+  # 판정 기준 (2026-10-07 재측정).
+  # 성공 에피소드의 0.576 은 **원본 씬의 convexHull 문**(문짝+손잡이가 한 덩어리, 두께 49 mm)을
+  # 물었을 때의 값이다. v2 씬은 손잡이를 실제 형상(막대 11x12 mm, 뒤 틈 22.5 mm)으로 바꿨으므로
+  # 같은 값이 나올 수 없다. 이 씬에서 막대를 위아래로 물면 턱 안쪽면이 막대에 닿는 0.95~1.05 에서
+  # 멈추고(실측 0.976, 클램프 30 N), 허공을 쥐면 1.085 이상(기계 한계 1.094)까지 닫힌다.
+  grasped_at: 0.976
+  # 잡기 자세 보정 (2026-10-07 측정, core/kimm_door_traj.HandlePullPlanner 로 전달).
+  # back: 손을 문에서 뒤로 빼는 양. 0 이면 막대가 패드 원점에서 14 mm 에 물려 손가락 끝이 문짝에 닿는다.
+  #       8 mm 빼면 22 mm (문짝까지 여유 6 mm) 가 되고 양면 접촉이 된다.
+  # dz  : 턱 중앙 보정 (모델 대비 실제 턱 중앙이 2.7 mm 아래).
+  # pull_rep: 당기기 한 점당 물리 반복. 6 이면 2 보다 3배 천천히 당긴다.
+  grasp_back: 0.008
+  grasp_dz: 0.0027
+  pull_rep: 6
+  grasp_range: [0.90, 1.06]
+
+# 물리 머티리얼. 씬에 머티리얼이 하나도 없어 기본값(마찰 0.5)으로 계산된다.
+# pad 를 주면 손가락·문에 그 마찰을 물린다 (RH-P12-RN 손가락은 고무 패드).
+# 2026-10-07 비교: 1.0 으로 올려도 당기기 결과가 달라지지 않았다(미끄러짐이 마찰 때문이 아니라
+# 턱이 끝으로 갈수록 벌어지는 형상 때문). 기본값은 끈 상태로 둔다.
+friction:
+  pad: null
+
+# 접촉 솔버 반복 (PhysxArticulationAPI). 기본값으로는 11 mm 막대 파지가 부정확해 쉽게 풀린다.
+solver:
+  position_iterations: 64
+  velocity_iterations: 16
+
+# HDF5 에 담을 로봇 카메라. 키 이름은 ~/kimm_record/episode_recorder.py 의 IMAGE_TOPICS 와
+# 같게 맞춘다 (그래야 to_act.py 와 기존 변환 설정이 그대로 먹는다).
+# 프림 경로는 2026-10-07 씬에서 확인. ZED 우안(.../CameraRight)도 씬에 있으나 기존 포맷이
+# 3 대뿐이라 넣지 않았다. 스테레오가 필요하면 여기에 추가하면 된다.
+cameras:
+  d405_left:  /ffw_sg2_follower/arm_l_link7/d405/CameraLeftArm
+  d405_right: /ffw_sg2_follower/arm_r_link7/d405/CameraRightArm
+  zed_rgb:    /ffw_sg2_follower/head_link2/ZED_X_Mini/base_link/ZED_X_Mini/CameraLeft
+camera_res: [640, 480]        # --record-profile 과 같은 해상도
+
+# GUI/녹화 카메라. 설정하지 않으면 Kit 기본 카메라(5,5,5 -> 원점)가 쓰여 구도가 제각각이 된다
+# (2026-10-07 녹화에서 실제로 그랬다). 영상 구도는 여기서만 바꾼다.
+# 2026-10-07 GUI 에서 직접 맞춘 구도. tools/run.py --save-camera config/camera.json 으로 뽑았다.
+# 다시 맞추려면: run.py --selftest --keep-open --save-camera config/camera.json 으로 띄워
+# 원하는 시점으로 돌린 뒤 창을 닫고, 나온 값을 여기에 옮긴다.
+camera:
+  eye: [-3.3683, -3.6535, 1.5239]
+  target: [-2.4124, -3.0069, 0.7367]
+
+# 무작위 조건. kroc2027/episode_generator 의 원칙을 따라 **근거가 생기기 전까지 범위는 0** 이다.
+# 흔들 수 있는 것:
+#   base_xy_m      베이스 x,y 를 각각 +-이 값(m). 로봇 프림을 실제로 옮기고 같은 값을 플래너에 넘긴다.
+#   door_start_deg 문 초기 각도를 0~이 값(도).
+# **yaw 는 넣지 않았다.** HandlePullPlanner 가 w2r(..., yaw=0.0) 을 하드코딩한다
+# (core/kimm_door_traj.py:186,195). yaw 를 흔들려면 그 플래너부터 고쳐야 한다.
+# 여유 측정 전에는 CLI(--rand-xy, --rand-door-deg, --seed)로만 쓰고 여기에 적지 않는다.
+randomize:
+  base_xy_m: 0.0
+  door_start_deg: 0.0
+
+# 안전 가드 (tools/run.py 의 step()). 넘으면 즉시 중단한다.
+# 본래 목적은 **바퀴가 굴러 베이스가 밀리는 사고**를 잡는 것이다 (2026-10-07 실측 40 mm).
+# 2 mm 는 그 사고를 기준으로 잡은 값이고, 반력에 대한 관절 컴플라이언스를 재서 정한 값이 아니다.
+# 2026-10-07 측정으로 12 mm 로 올렸다. 가드를 100 mm 로 열고 전 구간을 돌린 결과
+#   베이스 최대 이동 7.756 mm (push 구간, 문을 90 도까지 미는 반력), 몸통 최대 오차 0.009 mm.
+# 2 mm 로는 정상 동작이 push 중간에 막혔다. 바퀴가 풀렸을 때의 40 mm 는 12 mm 로도 잡힌다.
+guards:
+  base_tol_mm: 12.0
+  lift_tol_mm: 1.0
+
+# 목표 보간. tools/run.py 가 resample 로 경로를 dq 간격으로 쪼개고, 목표 하나당 substeps 번
+# 물리를 돌린다. substeps 2 는 같은 목표를 두 스텝 붙잡는 **계단 입력**이라 매 목표마다
+# 드라이브를 때린다. substeps 1 로 목표가 매 물리 스텝 전진하면 연속 램프가 된다.
+# 2026-10-07 tools/tremor_probe.py 로 home 구간 측정 (떨림 = 위치 2차 차분 RMS):
+#   dq 0.015 / substeps 2 (종전)  떨림 5523 urad, 정지 잔진동 338 urad, 추종오차 최대 3.88 mrad
+#   dq 0.005 / substeps 1         떨림   21 urad, 정지 잔진동  26 urad, 추종오차 최대 0.60 mrad
+# 물리 스텝은 526 -> 753 으로 1.4 배만 늘어난다.
+motion:
+  dq: 0.005
+  substeps: 1
+
+# 액추에이터 게인 덮어쓰기. USD 드라이브 값을 물리 시작 전에 바꾼다.
+# null 이면 USD 원본값을 쓴다. 2026-10-07 실측 joint7 stiffness=24.210968, damping=0.0096844.
+#
+# 감쇠를 18 배로 올린 근거 (2026-10-07):
+#   USD 원본은 전 팔관절이 damping/stiffness = 0.00040 s 로 **똑같다**. 튜닝된 값이 아니라
+#   변환기가 damping = stiffness x 0.0004 로 일괄 생성한 값이다.
+#   assets/ffw_sg2_follower.urdf 의 링크 관성으로 반사 관성을 추정하면 감쇠비는
+#     joint1 0.057 / joint2 0.052 / joint4 0.079  (임계감쇠의 1/18 수준)
+#   이고 고유진동수 41~63 Hz 가 물리 스텝 60 Hz 의 해상 한계(30 Hz)를 넘는다.
+#   18 배는 joint1 이 임계감쇠(c_crit 701 Nm s/rad)가 되는 배수다. tremor_probe 측정:
+#     감쇠 x1   정지 잔진동 338 urad,  x5  9.3,  x18  5.1,  x40  11.4 (과감쇠로 추종 악화)
+#     램프(dq 0.005/substeps 1)와 함께 쓰면 떨림 21 -> 9.7 urad, 정지 잔진동 26 -> 4.6 urad
+#   **강성은 건드리지 않는다.** 강성을 바꾸면 파지 클램프력과 접촉 거동이 같이 변해
+#   2026-10-07 에 측정한 grasp_range 와 막대 깊이 값이 전부 무효가 된다.
+actuators:
+  arm_r_joint1:
+    stiffness: null
+    damping: 12.460122      # USD 0.692229 x 18
+  arm_r_joint2:
+    stiffness: null
+    damping: 10.300230      # USD 0.572235 x 18
+  arm_r_joint3:
+    stiffness: null
+    damping: 9.152046       # USD 0.508447 x 18
+  arm_r_joint4:
+    stiffness: null
+    damping: 4.263822       # USD 0.236879 x 18
+  arm_r_joint5:
+    stiffness: null
+    damping: 1.835730       # USD 0.101985 x 18
+  arm_r_joint6:
+    stiffness: null
+    damping: 0.509796       # USD 0.028322 x 18
+  # joint7 은 unresolved.wrist_compliance 가 걸린 관절이다. 감쇠만 올렸고 강성은 그대로다.
+  arm_r_joint7:
+    stiffness: null
+    damping: 0.174312       # USD 0.009684 x 18
+
+# ------------------------------------------------------------------ 미해결 문제
+unresolved:
+  wrist_compliance:
+    문제: >
+      성공 에피소드에서는 접촉 시 arm_r_joint7 이 목표에서 0.553 rad(평균) 밀리고,
+      그 비틀림 덕에 손가락이 막대에 걸린다 (kimm_door_env_cfg.py 주석:
+      "손목(joint7, DP-42, 5.1 N.m)은 잡기 때 손잡이에 1.2 rad 비틀리지만,
+      그 덕에 손가락이 걸려 당겨짐").
+      기존 기록은 손목 강성을 원인 후보로 지목했다. 하지만 2026-10-07 현재 USD의
+      joint7 stiffness는 24.210968이며, 1730.57은 joint1의 값이다.
+      기본 동작에서는 잡기 후 그리퍼가 1.002까지 닫히고, 당길 때 1.091까지 닫혀 빠진다.
+    근거: >
+      성공 에피소드의 joint_pos_target 을 그대로 재생해도 문이 0.44 도에서 끝난다(기록은 90도).
+      접촉 구간 관절 편차: joint7 평균 +0.553 / 최대 0.740, 나머지 관절은 0.06 이하.
+      비접촉 구간에서는 전 관절 0.01 rad 이내로 정확히 추종.
+    미확정: >
+      cyclo_lab 의 ArticulationCfg.actuators 게인을 알 수 없다 (HP Z2 오프라인).
+      추측하지 말고, 실제 손잡이 파지를 재현하는 값으로 검증할 것.
+      2026-10-07 강성 170/17, 삽입 깊이와 잡기 높이 비교로는 안정적인 파지를 재현하지 못했다.

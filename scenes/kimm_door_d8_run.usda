@@ -1,0 +1,48 @@
+#usda 1.0
+(
+    doc = """D8 문 열기 실행용 루트 레이어 (Isaac Lab 없이 Isaac Sim 단독 실행).
+
+    sublayer 순서 = override 먼저, 원본 나중 (kimm_record/overrides/sim_overrides.md 규칙).
+
+      1) fix_gripper_mimic.usda : 그리퍼 4관절 mimic 보정.
+         원본 physics 레이어는 naturalFrequency 25 / dampingRatio 0.005 라 joint2 가 joint1 보다
+         ~0.28 rad 뒤처지고 joint3,4 는 기울기 0.5~0.7 로만 따라간다. 그 상태로는 옆 파지가 낙하한다.
+         보정값(1500 / 5)은 robotis_lab FFW_SG2.usd 와 같다 = 성공 에피소드를 만든 환경과 같은 값.
+      2) kimm_room_static.usda : D8 문의 물리 설정. 이게 없으면 문이 절대 안 열린다.
+         원본 씬의 D8 은 문 전체 convexHull 이라 손잡이 뒤에 손가락을 걸 틈이 없다.
+         이 레이어가 메시 콜라이더를 끄고(collisionEnabled=0) 박스 4개로 대체한다:
+           col_panel(문짝), col_bar(손잡이 막대), col_leg_a/b(막대 다리)
+         + angularDamping 5, OBJ_cab_0007/D7 과의 filteredPairs.
+         원본 씬 3개 파일에 col_bar 가 0건임을 확인하고 넣었다 (2026-10-03).
+         payload 가 상대경로(./LAB_3/LAB_3_scene.usd)라 LAB_3/ 가 있는 kroc2027/world/ 에
+         둬야만 풀린다. v2 폴더로 옮기면 방 지오메트리가 통째로 로드 실패하므로 옮기지 말 것.
+      3) 로봇 배치 : (-2.90, -2.80) yaw 0, lift -0.25  (kimm_door_env_cfg.py / 성공 에피소드 root_pose)
+      4) env2_kimm_room_ver1.usd : 원본 씬 (수정하지 않음)
+
+    스테이지 메타데이터(upAxis 등)는 subLayer 에서 합성되지 않으므로 여기 다시 선언한다."""
+    subLayers = [
+        @/home/sangjun/kimm_record/overrides/fix_gripper_mimic.usda@,
+        @../../kroc2027/world/kimm_room_static.usda@,
+        @../../kroc2027/world/env2_kimm_room_ver1.usd@
+    ]
+
+    upAxis = "Z"
+    metersPerUnit = 1
+    defaultPrim = "ffw_sg2_follower"
+)
+
+over "ffw_sg2_follower"
+{
+    double3 xformOp:translate = (-2.90, -2.80, 0)
+    quatd xformOp:orient = (1, 0, 0, 0)
+
+    over "joints"
+    {
+        over "lift_joint"
+        {
+            float drive:linear:physics:targetPosition = -0.25
+            float state:linear:physics:position = -0.25
+            float state:linear:physics:velocity = 0
+        }
+    }
+}
